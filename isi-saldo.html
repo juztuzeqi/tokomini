@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html><body style="font-family:system-ui;padding:20px;">
+<h3>Isi Saldo Awal ke localStorage</h3>
+<button onclick="isi()" style="padding:12px 20px;font-size:16px;">Isi Sekarang</button>
+<p id="hasil"></p>
+<script>
+function isi() {
+  fetch('data-saldo.json').then(r => r.json()).then(j => {
+    (j.siswa || []).forEach(s => {
+      localStorage.setItem('kp2a_saldo_' + s.kode_siswa, s.saldo);
+    });
+    document.getElementById('hasil').textContent =
+      '✅ ' + (j.siswa || []).length + ' siswa tersimpan di localStorage.';
+  }).catch(e => document.getElementById('hasil').textContent = '❌ Gagal: ' + e);
+}
+</script>
+</body></html>
