@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kasir KP2A</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+  body { margin: 0; padding: 16px; background: #f4f4f4; max-width: 520px; margin: auto; }
+  h2 { margin: 8px 0; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  button { border: none; border-radius: 8px; padding: 12px 16px; font-size: 15px; cursor: pointer; }
+  .btn-primary { background: #2563eb; color: #fff; width: 100%; }
+  .btn-green { background: #16a34a; color: #fff; width: 100%; }
+  .btn-gray { background: #e5e7eb; color: #111; }
+  .btn-red { background: #dc2626; color: #fff; }
+  #reader { width: 100%; border-radius: 8px; overflow: hidden; display: none; margin-top: 8px; }
+  .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; }
+  .total { font-weight: bold; font-size: 18px; }
+  input[type=text] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; }
+  .muted { color: #666; font-size: 13px; }
+  .badge { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h2>🛒 Kasir KP2A</h2>
+
+<div class="card">
+  <button class="btn-primary" onclick="toggleScan()">📷 Scan Barcode</button>
+  <div id="reader"></div>
+  <div style="margin-top:8px;display:flex;gap:8px;">
+    <input type="text" id="manualKode" placeholder="Ketik kode barang / KUE-001">
+    <button class="btn-gray" onclick="tambahManual()">+</button>
+  </div>
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;">
+    <strong>Keranjang</strong>
+    <button class="btn-red" style="padding:4px 10px;font-size:13px;" onclick="kosongkan()">Kosongkan</button>
+  </div>
+  <div id="keranjang"><div class="muted">Belum ada barang.</div></div>
+  <div class="row total" style="border:none;"><span>Total</span><span id="total">Rp0</span></div>
+</div>
+
+<div class="card">
+  <strong>Pembeli</strong>
+  <input type="text" id="pembeli" placeholder="Scan kartu / ketik nama" style="margin-top:8px;">
+</div>
+
+<div class="card" style="display:flex;gap:8px;">
+  <button class="btn-green" onclick="bayar('potong')">💳 Potong Saldo</button>
+  <button class="btn-primary" onclick="bayar('qris')">📱 QRIS</button>
+</div>
+
+<div id="qrModal" class="card" style="display:none;text-align:center;">
+  <p><strong>Scan QRIS KP2A</strong></p>
+  <img src="qris.png" alt="QRIS" style="width:220px;height:220px;object-fit:contain;border:1px solid #ddd;border-radius:8px;">
+  <p class="muted">Setelah bayar, tekan tombol di bawah.</p>
+  <button class="btn-green" onclick="konfirmasiQRIS()">✅ Sudah Bayar</button>
+</div>
+
+<script>
+let barang = [];
+let keranjang = [];
+let scanTarget = null;
+
+// --- load CSV ---
+fetch('data-barang.csv').then(r => r.text()).then(txt => {
+  const lines = txt.trim().split('\n').slice(1);
+  barang = lines.map(l => {
+    const [barcode, nama, harga, aktif] = l.split(',');
+    return { barcode: barcode.trim(), nama: nama.trim(), harga: +harga, aktif: +aktif === 1 };
+  }).filter(b => b.aktif);
+  console.log('Barang loaded:', barang.length);
+});
+
+// --- scan ---
+function toggleScan() {
+  const reader = document.getElementById('reader');
+  if (reader.style.display === 'block') { hentikanScan(); return; }
+  reader.style.display = 'block';
+  const qr = new Html5Qrcode('reader');
+  qr.start({ facingMode: 'environment' }, { fps: 10, qrbox: 250 },
+    (decoded) => { hentikanScan(); prosesKode(decoded); },
+    () => {}
+  ).catch(e => alert('Kamera gagal: ' + e));
+  scanTarget = qr;
+}
+function hentikanScan() {
+  if (scanTarget) { scanTarget.stop().then(() => scanTarget.clear()); scanTarget = null; }
+  document.getElementById('reader').style.display = 'none';
+}
+
+// --- tambah barang ---
+function tambahManual() {
+  const kode = document.getElementById('manualKode').value.trim();
+  if (!kode) return;
+  prosesKode(kode);
+  document.getElementById('manualKode').value = '';
+}
+function prosesKode(kode) {
+  const b = barang.find(x => x.barcode === kode);
+  if (!b) return alert('Barang tidak ditemukan: ' + kode);
+  keranjang.push(b);
+  render();
+}
+function kosongkan() { keranjang = []; render(); }
+
+function render() {
+  const el = document.getElementById('keranjang');
+  if (!keranjang.length) { el.innerHTML = '<div class="muted">Belum ada barang.</div>'; }
+  else {
+    el.innerHTML = keranjang.map((b, i) =>
+      `<div class="row"><span>${b.nama} <span class="badge">${b.barcode}</span></span>
+       <span>Rp${b.harga.toLocaleString('id-ID')} <button class="btn-red" style="padding:2px 6px;font-size:11px;" onclick="hapus(${i})">x</button></span></div>`
+    ).join('');
+  }
+  const total = keranjang.reduce((s, b) => s + b.harga, 0);
+  document.getElementById('total').textContent = 'Rp' + total.toLocaleString('id-ID');
+}
+function hapus(i) { keranjang.splice(i, 1); render(); }
+
+// --- pembayaran ---
+function bayar(metode) {
+  const nama = document.getElementById('pembeli').value.trim();
+  if (!keranjang.length) return alert('Keranjang kosong.');
+  if (!nama) return alert('Isi nama / scan kartu pembeli dulu.');
+  if (metode === 'qris') {
+    document.getElementById('qrModal').style.display = 'block';
+    return;
+  }
+  // potong saldo (prototype: saldo di localStorage, manual)
+  const saldoKey = 'kp2a_saldo_' + nama.toLowerCase();
+  let saldo = +(localStorage.getItem(saldoKey) || 0);
+  const total = keranjang.reduce((s, b) => s + b.harga, 0);
+  if (saldo < total) return alert(`Saldo ${nama}: Rp${saldo.toLocaleString('id-ID')} — tidak cukup.`);
+  saldo -= total;
+  localStorage.setItem(saldoKey, saldo);
+  catatTransaksi(nama, metode);
+  alert(`Berhasil. Sisa saldo ${nama}: Rp${saldo.toLocaleString('id-ID')}`);
+}
+function konfirmasiQRIS() {
+  const nama = document.getElementById('pembeli').value.trim();
+  catatTransaksi(nama, 'qris');
+  document.getElementById('qrModal').style.display = 'none';
+}
+function catatTransaksi(nama, metode) {
+  const total = keranjang.reduce((s, b) => s + b.harga, 0);
+  const log = JSON.parse(localStorage.getItem('kp2a_transaksi') || '[]');
+  log.push({ waktu: new Date().toISOString(), nama, items: keranjang, total, metode });
+  localStorage.setItem('kp2a_transaksi', JSON.stringify(log));
+  alert(`✅ ${nama} — Rp${total.toLocaleString('id-ID')} (${metode})`);
+  keranjang = []; document.getElementById('pembeli').value = ''; render();
+}
+</script>
+</body>
+</html>
