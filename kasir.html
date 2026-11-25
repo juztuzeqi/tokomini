@@ -21,23 +21,27 @@
   input[type=text] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; }
   .muted { color: #666; font-size: 13px; }
   .badge { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+  .saldo-box { background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 10px; margin-top: 8px; display: none; }
 </style>
 </head>
 <body>
 
 <h2>🛒 Kasir KP2A</h2>
 
+<!-- SCAN / KETIK BARANG -->
 <div class="card">
   <button class="btn-primary" onclick="toggleScan()">📷 Scan Barcode</button>
   <div id="reader"></div>
   <div style="margin-top:8px;display:flex;gap:8px;">
-    <input type="text" id="manualKode" placeholder="Ketik kode barang / KUE-001">
-    <button class="btn-gray" onclick="tambahManual()">+</button>
+    <input type="text" id="ketikBarang" list="listBarang" placeholder="Ketik nama / kode barang..." onchange="pilihBarang()">
+    <datalist id="listBarang"></datalist>
+    <button class="btn-gray" onclick="pilihBarang()">+</button>
   </div>
 </div>
 
+<!-- KERANJANG -->
 <div class="card">
-  <div style="display:flex;justify-content:space-between;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
     <strong>Keranjang</strong>
     <button class="btn-red" style="padding:4px 10px;font-size:13px;" onclick="kosongkan()">Kosongkan</button>
   </div>
@@ -45,16 +49,24 @@
   <div class="row total" style="border:none;"><span>Total</span><span id="total">Rp0</span></div>
 </div>
 
+<!-- PEMBAYARAN -->
 <div class="card">
-  <strong>Pembeli</strong>
-  <input type="text" id="pembeli" placeholder="Scan kartu / ketik nama" style="margin-top:8px;">
+  <strong>Pembayaran</strong>
+  <div style="display:flex;gap:8px;margin-top:10px;">
+    <button class="btn-green" onclick="bukaPotongSaldo()">💳 Potong Saldo</button>
+    <button class="btn-primary" onclick="bukaQRIS()">📱 QRIS</button>
+  </div>
+
+  <!-- Panel Potong Saldo -->
+  <div id="panelSaldo" style="display:none;margin-top:12px;">
+    <input type="text" id="ketikSiswa" list="listSiswa" placeholder="Scan QR kartu / ketik nama siswa..." onchange="pilihSiswa()">
+    <datalist id="listSiswa"></datalist>
+    <div id="saldoBox" class="saldo-box"></div>
+    <button class="btn-green" style="margin-top:10px;" onclick="bayarPotong()">Konfirmasi Potong Saldo</button>
+  </div>
 </div>
 
-<div class="card" style="display:flex;gap:8px;">
-  <button class="btn-green" onclick="bayar('potong')">💳 Potong Saldo</button>
-  <button class="btn-primary" onclick="bayar('qris')">📱 QRIS</button>
-</div>
-
+<!-- MODAL QRIS -->
 <div id="qrModal" class="card" style="display:none;text-align:center;">
   <p><strong>Scan QRIS KP2A</strong></p>
   <img src="qris.png" alt="QRIS" style="width:220px;height:220px;object-fit:contain;border:1px solid #ddd;border-radius:8px;">
@@ -64,20 +76,29 @@
 
 <script>
 let barang = [];
-let keranjang = [];
+let siswa = [];
+let keranjang = []; // {barcode, nama, harga, qty}
 let scanTarget = null;
+let siswaTerpilih = null;
 
-// --- load CSV ---
+// ================= LOAD DATA =================
 fetch('data-barang.csv').then(r => r.text()).then(txt => {
   const lines = txt.trim().split('\n').slice(1);
   barang = lines.map(l => {
     const [barcode, nama, harga, aktif] = l.split(',');
     return { barcode: barcode.trim(), nama: nama.trim(), harga: +harga, aktif: +aktif === 1 };
   }).filter(b => b.aktif);
+  isiDatalistBarang();
   console.log('Barang loaded:', barang.length);
 });
 
-// --- scan ---
+fetch('data-saldo.json').then(r => r.json()).then(j => {
+  siswa = (j.siswa || []).map(s => ({ ...s }));
+  isiDatalistSiswa();
+  console.log('Siswa loaded:', siswa.length);
+}).catch(() => console.log('data-saldo.json tidak ditemukan, pakai localStorage saja'));
+
+// ================= SCAN BARANG =================
 function toggleScan() {
   const reader = document.getElementById('reader');
   if (reader.style.display === 'block') { hentikanScan(); return; }
@@ -94,67 +115,127 @@ function hentikanScan() {
   document.getElementById('reader').style.display = 'none';
 }
 
-// --- tambah barang ---
-function tambahManual() {
-  const kode = document.getElementById('manualKode').value.trim();
-  if (!kode) return;
-  prosesKode(kode);
-  document.getElementById('manualKode').value = '';
+// ================= KETIK / PILIH BARANG =================
+function isiDatalistBarang() {
+  document.getElementById('listBarang').innerHTML =
+    barang.map(b => `<option value="${b.nama}">`).join('');
 }
+function pilihBarang() {
+  const val = document.getElementById('ketikBarang').value.trim();
+  if (!val) return;
+  // cocokkan barcode dulu, lalu nama
+  let b = barang.find(x => x.barcode === val) || barang.find(x => x.nama.toLowerCase() === val.toLowerCase());
+  if (!b) return alert('Barang tidak ditemukan: ' + val);
+  tambahKeKeranjang(b);
+  document.getElementById('ketikBarang').value = '';
+}
+
+// ================= KERANJANG =================
 function prosesKode(kode) {
   const b = barang.find(x => x.barcode === kode);
   if (!b) return alert('Barang tidak ditemukan: ' + kode);
-  keranjang.push(b);
+  tambahKeKeranjang(b);
+}
+function tambahKeKeranjang(b) {
+  const existing = keranjang.find(x => x.barcode === b.barcode);
+  if (existing) { existing.qty++; }
+  else { keranjang.push({ barcode: b.barcode, nama: b.nama, harga: b.harga, qty: 1 }); }
   render();
 }
 function kosongkan() { keranjang = []; render(); }
+function hapus(i) { keranjang.splice(i, 1); render(); }
 
 function render() {
   const el = document.getElementById('keranjang');
   if (!keranjang.length) { el.innerHTML = '<div class="muted">Belum ada barang.</div>'; }
   else {
     el.innerHTML = keranjang.map((b, i) =>
-      `<div class="row"><span>${b.nama} <span class="badge">${b.barcode}</span></span>
-       <span>Rp${b.harga.toLocaleString('id-ID')} <button class="btn-red" style="padding:2px 6px;font-size:11px;" onclick="hapus(${i})">x</button></span></div>`
+      `<div class="row"><span>${b.nama} × ${b.qty} <span class="badge">${b.barcode}</span></span>
+       <span>Rp${(b.harga * b.qty).toLocaleString('id-ID')}
+       <button class="btn-red" style="padding:2px 6px;font-size:11px;" onclick="hapus(${i})">x</button></span></div>`
     ).join('');
   }
-  const total = keranjang.reduce((s, b) => s + b.harga, 0);
+  const total = keranjang.reduce((s, b) => s + b.harga * b.qty, 0);
   document.getElementById('total').textContent = 'Rp' + total.toLocaleString('id-ID');
 }
-function hapus(i) { keranjang.splice(i, 1); render(); }
 
-// --- pembayaran ---
-function bayar(metode) {
-  const nama = document.getElementById('pembeli').value.trim();
+// ================= SISWA / SALDO =================
+function isiDatalistSiswa() {
+  document.getElementById('listSiswa').innerHTML =
+    siswa.map(s => `<option value="${s.nama}">`).join('');
+}
+function pilihSiswa() {
+  const val = document.getElementById('ketikSiswa').value.trim();
+  if (!val) return;
+  const s = siswa.find(x => x.kode_siswa === val) || siswa.find(x => x.nama.toLowerCase() === val.toLowerCase());
+  if (!s) { siswaTerpilih = null; document.getElementById('saldoBox').style.display = 'none'; return alert('Siswa tidak ditemukan: ' + val); }
+  siswaTerpilih = s;
+  tampilkanSaldo();
+}
+function ambilSaldo(s) {
+  // localStorage menang kalau ada, kalau tidak pakai dari JSON
+  const key = 'kp2a_saldo_' + s.kode_siswa;
+  const lokal = localStorage.getItem(key);
+  return lokal !== null ? +lokal : +s.saldo;
+}
+function tampilkanSaldo() {
+  if (!siswaTerpilih) return;
+  const saldo = ambilSaldo(siswaTerpilih);
+  const box = document.getElementById('saldoBox');
+  box.style.display = 'block';
+  box.innerHTML = `<strong>${siswaTerpilih.nama}</strong> (${siswaTerpilih.kode_siswa})<br>
+    Saldo: <strong>Rp${saldo.toLocaleString('id-ID')}</strong>`;
+}
+
+// ================= PEMBAYARAN =================
+function bukaPotongSaldo() {
   if (!keranjang.length) return alert('Keranjang kosong.');
-  if (!nama) return alert('Isi nama / scan kartu pembeli dulu.');
-  if (metode === 'qris') {
-    document.getElementById('qrModal').style.display = 'block';
-    return;
-  }
-  // potong saldo (prototype: saldo di localStorage, manual)
-  const saldoKey = 'kp2a_saldo_' + nama.toLowerCase();
-  let saldo = +(localStorage.getItem(saldoKey) || 0);
-  const total = keranjang.reduce((s, b) => s + b.harga, 0);
-  if (saldo < total) return alert(`Saldo ${nama}: Rp${saldo.toLocaleString('id-ID')} — tidak cukup.`);
-  saldo -= total;
-  localStorage.setItem(saldoKey, saldo);
-  catatTransaksi(nama, metode);
-  alert(`Berhasil. Sisa saldo ${nama}: Rp${saldo.toLocaleString('id-ID')}`);
+  const panel = document.getElementById('panelSaldo');
+  panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+}
+function bayarPotong() {
+  if (!keranjang.length) return alert('Keranjang kosong.');
+  if (!siswaTerpilih) return alert('Pilih siswa dulu.');
+  const total = keranjang.reduce((s, b) => s + b.harga * b.qty, 0);
+  const saldo = ambilSaldo(siswaTerpilih);
+  if (saldo < total) return alert(`Saldo ${siswaTerpilih.nama}: Rp${saldo.toLocaleString('id-ID')} — tidak cukup.`);
+  const sisa = saldo - total;
+  localStorage.setItem('kp2a_saldo_' + siswaTerpilih.kode_siswa, sisa);
+  catatTransaksi(siswaTerpilih, 'potong_saldo');
+  alert(`✅ ${siswaTerpilih.nama} — Rp${total.toLocaleString('id-ID')}\nSisa saldo: Rp${sisa.toLocaleString('id-ID')}`);
+}
+function bukaQRIS() {
+  if (!keranjang.length) return alert('Keranjang kosong.');
+  document.getElementById('qrModal').style.display = 'block';
 }
 function konfirmasiQRIS() {
-  const nama = document.getElementById('pembeli').value.trim();
-  catatTransaksi(nama, 'qris');
+  catatTransaksi({ kode_siswa: '-', nama: 'QRIS' }, 'qris');
   document.getElementById('qrModal').style.display = 'none';
 }
-function catatTransaksi(nama, metode) {
-  const total = keranjang.reduce((s, b) => s + b.harga, 0);
+
+// ================= CATAT TRANSAKSI =================
+function catatTransaksi(pembeli, metode) {
+  const total = keranjang.reduce((s, b) => s + b.harga * b.qty, 0);
   const log = JSON.parse(localStorage.getItem('kp2a_transaksi') || '[]');
-  log.push({ waktu: new Date().toISOString(), nama, items: keranjang, total, metode });
+  log.push({
+    waktu: new Date().toISOString(),
+    kode_siswa: pembeli.kode_siswa,
+    nama: pembeli.nama,
+    items: keranjang,
+    total,
+    metode
+  });
   localStorage.setItem('kp2a_transaksi', JSON.stringify(log));
-  alert(`✅ ${nama} — Rp${total.toLocaleString('id-ID')} (${metode})`);
-  keranjang = []; document.getElementById('pembeli').value = ''; render();
+  keranjang = [];
+  siswaTerpilih = null;
+  document.getElementById('ketikSiswa').value = '';
+  document.getElementById('saldoBox').style.display = 'none';
+  document.getElementById('panelSaldo').style.display = 'none';
+  render();
 }
+
+// init
+render();
 </script>
 </body>
 </html>
