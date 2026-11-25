@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Barang (rahasia)</title>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 16px; max-width: 760px; margin: auto; background: #f4f4f4; }
+  h2 { margin: 8px 0; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 6px; border-bottom: 1px solid #eee; text-align: left; }
+  input { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+  button { border: none; border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-red { background: #dc2626; color: #fff; }
+  .btn-gray { background: #e5e7eb; color: #111; }
+  .muted { color: #666; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h2>⚙️ Admin Barang (jangan disebar)</h2>
+<p class="muted">Edit di browser → <strong>Unduh CSV</strong> → commit ke GitHub manual.</p>
+
+<div class="card">
+  <table>
+    <thead><tr><th>Barcode</th><th>Nama</th><th>Harga</th><th>Aktif</th><th></th></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button class="btn-primary" onclick="tambah()">+ Tambah Baris</button>
+    <button class="btn-gray" onclick="muatCSV()">🔄 Muat ulang CSV</button>
+    <button class="btn-gray" onclick="unduh()">⬇️ Unduh data-barang.csv</button>
+  </div>
+</div>
+
+<script>
+let data = [];
+
+function muatCSV() {
+  fetch('data-barang.csv').then(r => r.text()).then(txt => {
+    const lines = txt.trim().split('\n').slice(1);
+    data = lines.map(l => {
+      const [barcode, nama, harga, aktif] = l.split(',');
+      return { barcode: barcode.trim(), nama: nama.trim(), harga: +harga, aktif: +aktif };
+    });
+    render();
+  });
+}
+function render() {
+  document.getElementById('tbody').innerHTML = data.map((b, i) => `
+    <tr>
+      <td><input value="${b.barcode}" onchange="data[${i}].barcode=this.value"></td>
+      <td><input value="${b.nama}" onchange="data[${i}].nama=this.value"></td>
+      <td><input type="number" value="${b.harga}" onchange="data[${i}].harga=+this.value"></td>
+      <td><input type="checkbox" ${b.aktif ? 'checked' : ''} onchange="data[${i}].aktif=this.checked?1:0"></td>
+      <td><button class="btn-red" onclick="hapus(${i})">x</button></td>
+    </tr>
+  `).join('');
+}
+function tambah() { data.push({ barcode: '', nama: '', harga: 0, aktif: 1 }); render(); }
+function hapus(i) { data.splice(i, 1); render(); }
+function unduh() {
+  const csv = 'barcode,nama,harga,aktif\n' +
+    data.map(b => `${b.barcode},${b.nama},${b.harga},${b.aktif}`).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'data-barang.csv';
+  a.click();
+}
+muatCSV();
+</script>
+</body>
+</html>
