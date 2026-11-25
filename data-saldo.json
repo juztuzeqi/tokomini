@@ -1,7 +1,6 @@
 {
-  "catatan": "Saldo prototype disimpan di localStorage browser kasir, bukan dari file ini.",
-  "saldo_awal_contoh": [
-    { "nama": "budi", "saldo": 20000 },
-    { "nama": "sari", "saldo": 15000 }
+  "siswa": [
+    { "kode_siswa": "S001", "nama": "Budi", "saldo": 20000 },
+    { "kode_siswa": "S002", "nama": "Sari", "saldo": 15000 }
   ]
 }
