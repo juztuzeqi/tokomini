@@ -13,7 +13,7 @@
   button { border: none; border-radius: 8px; padding: 12px 16px; font-size: 15px; cursor: pointer; }
   .btn-primary { background: #2563eb; color: #fff; width: 100%; }
   .btn-green { background: #16a34a; color: #fff; width: 100%; }
-  .btn-gray { background: #e5e7eb; color: #111; }
+  .btn-gray { background: #e5e7eb; color: #111; width: 100%; }
   .btn-red { background: #dc2626; color: #fff; }
   #reader, #readerKartu { width: 100%; border-radius: 8px; overflow: hidden; display: none; margin-top: 8px; }
   .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; }
@@ -68,12 +68,12 @@
   </div>
 </div>
 
-<!-- MODAL QRIS -->
+<!-- MODAL QRIS (tanpa tombol konfirmasi) -->
 <div id="qrModal" class="card" style="display:none;text-align:center;">
   <p><strong>Scan QRIS KP2A</strong></p>
   <img src="qris.png" alt="QRIS" style="width:220px;height:220px;object-fit:contain;border:1px solid #ddd;border-radius:8px;">
-  <p class="muted">Setelah bayar, tekan tombol di bawah.</p>
-  <button class="btn-green" onclick="konfirmasiQRIS()">✅ Sudah Bayar</button>
+  <p class="muted">Setelah bayar, tutup halaman ini. Tidak perlu konfirmasi.</p>
+  <button class="btn-gray" onclick="tutupQRIS()">Tutup</button>
 </div>
 
 <script>
@@ -231,6 +231,11 @@ function bukaQRIS() {
   if (!keranjang.length) return alert('Keranjang kosong.');
   document.getElementById('qrModal').style.display = 'block';
 }
+function tutupQRIS() {
+  document.getElementById('qrModal').style.display = 'none';
+  keranjang = [];
+  render();
+}
 
 function bayarPotong() {
   if (!keranjang.length) return alert('Keranjang kosong.');
@@ -259,32 +264,6 @@ function bayarPotong() {
     alert(`✅ ${siswaTerpilih.nama} — Rp${total.toLocaleString('id-ID')}\nSisa saldo: Rp${Number(j.saldo_baru).toLocaleString('id-ID')}`);
     siswaTerpilih.saldo = j.saldo_baru;
     tampilkanSaldo();
-    keranjang = [];
-    render();
-  })
-  .catch(e => alert('Gagal kirim transaksi: ' + e));
-}
-
-function konfirmasiQRIS() {
-  const total = keranjang.reduce((s, b) => s + b.harga * b.qty, 0);
-  const payload = {
-    action: 'bayar',
-    kode_siswa: '-',
-    nama: 'QRIS',
-    total: total,
-    metode: 'qris',
-    items: keranjang
-  };
-  fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(payload)
-  })
-  .then(r => r.json())
-  .then(j => {
-    if (!j.ok) return alert('Gagal: ' + (j.error || 'tidak diketahui'));
-    alert(`✅ QRIS — Rp${total.toLocaleString('id-ID')}`);
-    document.getElementById('qrModal').style.display = 'none';
     keranjang = [];
     render();
   })
