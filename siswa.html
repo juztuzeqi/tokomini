@@ -19,6 +19,7 @@
   .riwayat-item { padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px; }
   .riwayat-item:last-child { border-bottom: none; }
   .riwayat-tgl { color: #666; font-size: 12px; }
+  .riwayat-nominal { float: right; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -42,7 +43,7 @@
   </div>
 
   <div class="card">
-    <strong>Riwayat (5 terakhir)</strong>
+    <strong>Riwayat (10 terakhir)</strong>
     <div id="riwayatList" style="margin-top:8px;"></div>
   </div>
 
@@ -60,10 +61,7 @@ function toggleScan() {
   reader.style.display = 'block';
   const qr = new Html5Qrcode('reader');
   qr.start({ facingMode: 'environment' }, { fps: 10, qrbox: 250 },
-    (decoded) => {
-      hentikanScan();
-      prosesKartu(decoded.trim());
-    },
+    (decoded) => { hentikanScan(); prosesKartu(decoded.trim()); },
     () => {}
   ).catch(e => alert('Kamera gagal: ' + e));
   scanTarget = qr;
@@ -80,11 +78,11 @@ function hentikanScan() {
 }
 
 function prosesKartu(kode) {
-  // Ambil data siswa (saldo) + riwayat sekaligus
   Promise.all([
     fetch(API_URL + '?action=siswa').then(r => r.json()),
-    fetch(API_URL + '?action=riwayat&kode=' + encodeURIComponent(kode)).then(r => r.json())
-  ]).then(([jSiswa, jRiwayat]) => {
+    fetch(API_URL + '?action=riwayat&kode=' + encodeURIComponent(kode)).then(r => r.json()),
+    fetch(API_URL + '?action=riwayat_topup&kode=' + encodeURIComponent(kode)).then(r => r.json())
+  ]).then(([jSiswa, jRiwayat, jTopup]) => {
     if (!jSiswa.ok) throw new Error(jSiswa.error || 'Gagal memuat siswa');
     const s = (jSiswa.siswa || []).find(x => x.kode_siswa === kode);
     if (!s) {
@@ -96,17 +94,39 @@ function prosesKartu(kode) {
     document.getElementById('kodeSiswa').textContent = s.kode_siswa;
     document.getElementById('saldoSiswa').textContent = 'Rp' + (Number(s.saldo) || 0).toLocaleString('id-ID');
 
-    const riwayat = (jRiwayat.ok ? jRiwayat.riwayat : []).slice().reverse().slice(0, 5);
+    // Gabungkan belanja + topup
+    const belanja = (jRiwayat.ok ? jRiwayat.riwayat : []).map(r => ({
+      tipe: 'belanja',
+      waktu: r.waktu,
+      total: Number(r.total) || 0,
+      keterangan: r.items ? ringkasItems(r.items) : '-',
+      metode: r.metode
+    }));
+    const topup = (jTopup.ok ? jTopup.riwayat : []).map(r => ({
+      tipe: 'topup',
+      waktu: r.waktu,
+      total: Number(r.jumlah) || 0,
+      keterangan: 'Top-up',
+      metode: r.sumber || 'manual'
+    }));
+
+    const gabungan = [...belanja, ...topup]
+      .sort((a, b) => new Date(b.waktu) - new Date(a.waktu))
+      .slice(0, 10);
+
     const list = document.getElementById('riwayatList');
-    if (!riwayat.length) {
+    if (!gabungan.length) {
       list.innerHTML = '<div class="muted">Belum ada transaksi.</div>';
     } else {
-      list.innerHTML = riwayat.map(r => {
+      list.innerHTML = gabungan.map(r => {
         const tgl = r.waktu ? new Date(r.waktu).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
+        const tanda = r.tipe === 'topup' ? '➕' : '➖';
+        const warna = r.tipe === 'topup' ? '#16a34a' : '#111';
         return `<div class="riwayat-item">
           <div class="riwayat-tgl">${tgl} — ${r.metode}</div>
-          <div>${r.items ? ringkasItems(r.items) : '-'}</div>
-          <div style="float:right;font-weight:bold;">Rp${(Number(r.total) || 0).toLocaleString('id-ID')}</div>
+          <div>${r.keterangan}
+            <span class="riwayat-nominal" style="color:${warna};">${tanda} Rp${r.total.toLocaleString('id-ID')}</span>
+          </div>
           <div style="clear:both;"></div>
         </div>`;
       }).join('');
