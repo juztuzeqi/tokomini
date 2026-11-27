@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kasir Toko Mini KP2A</title>
+<title>Kasir KP2A</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   * { box-sizing: border-box; font-family: system-ui, sans-serif; }
@@ -15,18 +15,21 @@
   .btn-green { background: #16a34a; color: #fff; width: 100%; }
   .btn-gray { background: #e5e7eb; color: #111; width: 100%; }
   .btn-red { background: #dc2626; color: #fff; }
-  #reader, #readerKartu { width: 100%; border-radius: 8px; overflow: hidden; display: none; margin-top: 8px; }
+  .btn-nom { background: #f3f4f6; color: #111; flex: 1; }
+  .btn-nom.aktif { background: #2563eb; color: #fff; }
+  #reader, #readerKartu, #readerTopup { width: 100%; border-radius: 8px; overflow: hidden; display: none; margin-top: 8px; }
   .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; }
   .total { font-weight: bold; font-size: 18px; }
-  input[type=text] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; }
+  input[type=text], input[type=number] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; }
   .muted { color: #666; font-size: 13px; }
   .badge { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 6px; font-size: 12px; }
   .saldo-box { background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 10px; margin-top: 8px; display: none; }
+  .nominal-row { display: flex; gap: 8px; margin-top: 8px; }
 </style>
 </head>
 <body>
 
-<h2>🛒 Kasir Toko Mini KP2A</h2>
+<h2>🛒 Kasir KP2A</h2>
 
 <!-- SCAN / KETIK BARANG -->
 <div class="card">
@@ -68,6 +71,27 @@
   </div>
 </div>
 
+<!-- TOP-UP -->
+<div class="card">
+  <button class="btn-gray" onclick="bukaTopup()">💰 Top-up Saldo Siswa</button>
+
+  <div id="panelTopup" style="display:none;margin-top:12px;">
+    <button class="btn-primary" style="margin-bottom:8px;" onclick="scanKartuTopup()">📷 Scan Kartu Siswa</button>
+    <div id="readerTopup"></div>
+    <div id="infoTopup" style="display:none;margin-top:10px;">
+      <div id="namaTopup" style="font-weight:bold;font-size:16px;"></div>
+      <div class="muted" id="saldoTopup"></div>
+    </div>
+    <div class="nominal-row">
+      <button class="btn-nom" onclick="pilihTopup(5000)">Rp5.000</button>
+      <button class="btn-nom" onclick="pilihTopup(10000)">Rp10.000</button>
+      <button class="btn-nom" onclick="pilihTopup(20000)">Rp20.000</button>
+    </div>
+    <input type="number" id="nominalTopup" placeholder="Atau ketik nominal..." style="margin-top:8px;">
+    <button class="btn-green" style="margin-top:10px;" onclick="prosesTopupClick()">Konfirmasi Top-up</button>
+  </div>
+</div>
+
 <!-- MODAL QRIS (tanpa tombol konfirmasi) -->
 <div id="qrModal" class="card" style="display:none;text-align:center;">
   <p><strong>Scan QRIS KP2A</strong></p>
@@ -82,10 +106,12 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbyYlNBATsmb0uBavxhtTrI3
 
 let barang = [];
 let siswa = [];
-let keranjang = []; // {barcode, nama, harga, qty}
+let keranjang = [];
 let scanTarget = null;
 let scanKartuTarget = null;
+let scanTopupTarget = null;
 let siswaTerpilih = null;
+let siswaTopup = null;
 
 // ================= LOAD BARANG (CSV) =================
 fetch('data-barang.csv').then(r => r.text()).then(txt => {
@@ -98,14 +124,17 @@ fetch('data-barang.csv').then(r => r.text()).then(txt => {
   console.log('Barang loaded:', barang.length);
 });
 
-// ================= LOAD SISWA (APPS SCRIPT) =================
-fetch(API_URL + '?action=siswa').then(r => r.json()).then(j => {
-  if (!j.ok) throw new Error(j.error || 'Gagal memuat siswa');
-  siswa = (j.siswa || []).map(s => ({ ...s }));
-  isiDatalistSiswa();
-  console.log('Siswa loaded:', siswa.length);
-}).catch(e => {
-  console.warn('Gagal load siswa dari Apps Script:', e);
+// ================= LOAD SISWA =================
+function loadSiswa() {
+  return fetch(API_URL + '?action=siswa').then(r => r.json()).then(j => {
+    if (!j.ok) throw new Error(j.error || 'Gagal memuat siswa');
+    siswa = (j.siswa || []).map(s => ({ ...s }));
+    isiDatalistSiswa();
+    console.log('Siswa loaded:', siswa.length);
+  });
+}
+loadSiswa().catch(e => {
+  console.warn('Gagal load siswa:', e);
   alert('Gagal memuat data siswa dari server. Cek koneksi.');
 });
 
@@ -191,7 +220,7 @@ function tampilkanSaldo() {
     Saldo: <strong>Rp${saldo.toLocaleString('id-ID')}</strong>`;
 }
 
-// ================= SCAN KARTU SISWA =================
+// ================= SCAN KARTU (POTONG SALDO) =================
 function scanKartuSiswa() {
   const container = document.getElementById('readerKartu');
   if (container.style.display === 'block' || scanKartuTarget) { hentikanScanKartu(); return; }
@@ -217,6 +246,37 @@ function hentikanScanKartu() {
       scanKartuTarget.clear();
       scanKartuTarget = null;
       document.getElementById('readerKartu').style.display = 'none';
+    });
+  }
+}
+
+// ================= SCAN KARTU (TOP-UP) =================
+function scanKartuTopup() {
+  const container = document.getElementById('readerTopup');
+  if (container.style.display === 'block' || scanTopupTarget) { hentikanScanTopup(); return; }
+  container.style.display = 'block';
+  const qr = new Html5Qrcode('readerTopup');
+  qr.start({ facingMode: 'environment' }, { fps: 10, qrbox: 250 },
+    (decoded) => {
+      hentikanScanTopup();
+      const kode = decoded.trim();
+      const s = siswa.find(x => x.kode_siswa === kode);
+      if (!s) return alert('Kartu tidak dikenali: ' + kode);
+      siswaTopup = s;
+      document.getElementById('namaTopup').textContent = s.nama;
+      document.getElementById('saldoTopup').textContent = 'Saldo saat ini: Rp' + (Number(s.saldo) || 0).toLocaleString('id-ID');
+      document.getElementById('infoTopup').style.display = 'block';
+    },
+    () => {}
+  ).catch(e => alert('Kamera gagal: ' + e));
+  scanTopupTarget = qr;
+}
+function hentikanScanTopup() {
+  if (scanTopupTarget) {
+    scanTopupTarget.stop().then(() => {
+      scanTopupTarget.clear();
+      scanTopupTarget = null;
+      document.getElementById('readerTopup').style.display = 'none';
     });
   }
 }
@@ -266,8 +326,51 @@ function bayarPotong() {
     tampilkanSaldo();
     keranjang = [];
     render();
+    loadSiswa();
   })
   .catch(e => alert('Gagal kirim transaksi: ' + e));
+}
+
+// ================= TOP-UP =================
+function bukaTopup() {
+  const p = document.getElementById('panelTopup');
+  p.style.display = p.style.display === 'block' ? 'none' : 'block';
+}
+function pilihTopup(n) {
+  document.getElementById('nominalTopup').value = n;
+  document.querySelectorAll('.btn-nom').forEach(b => {
+    b.classList.toggle('aktif', b.textContent.replace(/\D/g, '') === String(n));
+  });
+}
+function prosesTopupClick() {
+  if (!siswaTopup) return alert('Scan kartu siswa dulu.');
+  const jumlah = Number(document.getElementById('nominalTopup').value) || 0;
+  if (jumlah <= 0) return alert('Isi nominal top-up.');
+  if (!confirm(`Top-up ${siswaTopup.nama} sebesar Rp${jumlah.toLocaleString('id-ID')}?`)) return;
+
+  fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      action: 'topup',
+      kode_siswa: siswaTopup.kode_siswa,
+      nama: siswaTopup.nama,
+      jumlah: jumlah,
+      sumber: 'kasir',
+      catatan: ''
+    })
+  })
+  .then(r => r.json())
+  .then(j => {
+    if (!j.ok) return alert('Gagal: ' + (j.error || 'tidak diketahui'));
+    alert(`✅ Top-up ${siswaTopup.nama} — Rp${jumlah.toLocaleString('id-ID')}\nSaldo baru: Rp${Number(j.saldo_baru).toLocaleString('id-ID')}`);
+    siswaTopup.saldo = j.saldo_baru;
+    document.getElementById('saldoTopup').textContent = 'Saldo saat ini: Rp' + Number(j.saldo_baru).toLocaleString('id-ID');
+    document.getElementById('nominalTopup').value = '';
+    document.querySelectorAll('.btn-nom').forEach(b => b.classList.remove('aktif'));
+    loadSiswa();
+  })
+  .catch(e => alert('Gagal kirim top-up: ' + e));
 }
 
 // init
