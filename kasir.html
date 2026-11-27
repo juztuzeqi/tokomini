@@ -92,12 +92,13 @@
   </div>
 </div>
 
-<!-- MODAL QRIS (tanpa tombol konfirmasi) -->
+<!-- MODAL QRIS -->
 <div id="qrModal" class="card" style="display:none;text-align:center;">
   <p><strong>Scan QRIS KP2A</strong></p>
   <img src="qris.png" alt="QRIS" style="width:220px;height:220px;object-fit:contain;border:1px solid #ddd;border-radius:8px;">
-  <p class="muted">Setelah bayar, tutup halaman ini. Tidak perlu konfirmasi.</p>
-  <button class="btn-gray" onclick="tutupQRIS()">Tutup</button>
+  <p class="muted">Setelah siswa bayar, tekan tombol di bawah untuk mencatat.</p>
+  <button class="btn-green" onclick="konfirmasiQRIS()">✅ Sudah Bayar</button>
+  <button class="btn-gray" style="margin-top:8px;" onclick="batalQRIS()">Batal</button>
 </div>
 
 <script>
@@ -291,10 +292,8 @@ function bukaQRIS() {
   if (!keranjang.length) return alert('Keranjang kosong.');
   document.getElementById('qrModal').style.display = 'block';
 }
-function tutupQRIS() {
+function batalQRIS() {
   document.getElementById('qrModal').style.display = 'none';
-  keranjang = [];
-  render();
 }
 
 function bayarPotong() {
@@ -329,6 +328,33 @@ function bayarPotong() {
     loadSiswa();
   })
   .catch(e => alert('Gagal kirim transaksi: ' + e));
+}
+
+function konfirmasiQRIS() {
+  const total = keranjang.reduce((s, b) => s + b.harga * b.qty, 0);
+  const payload = {
+    action: 'bayar',
+    kode_siswa: 'qris',
+    nama: 'qris',
+    total: total,
+    metode: 'qris',
+    items: keranjang
+  };
+
+  fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(j => {
+    if (!j.ok) return alert('Gagal catat QRIS: ' + (j.error || 'tidak diketahui'));
+    alert(`✅ QRIS tercatat — Rp${total.toLocaleString('id-ID')}`);
+    document.getElementById('qrModal').style.display = 'none';
+    keranjang = [];
+    render();
+  })
+  .catch(e => alert('Gagal kirim QRIS: ' + e));
 }
 
 // ================= TOP-UP =================
