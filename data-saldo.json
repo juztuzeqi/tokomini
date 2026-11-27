@@ -1,6 +1,0 @@
-{
-  "siswa": [
-    { "kode_siswa": "S001", "nama": "Budi", "saldo": 20000 },
-    { "kode_siswa": "S002", "nama": "Sari", "saldo": 15000 }
-  ]
-}
